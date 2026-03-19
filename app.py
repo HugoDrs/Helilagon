@@ -198,21 +198,69 @@ def convert_xls_bytes_to_csv(xls_bytes):
 # ── Interface Streamlit ───────────────────────────────────────────────────────
 
 st.title("🚁 Airstock → Airbus CSV")
-st.markdown("Dépose ton fichier `.xls` exporté depuis **Airstock**, récupère le `.csv` prêt pour le portail **Airbus Helicopters**.")
+st.markdown(
+    "Convertit automatiquement un fichier `.xls` exporté depuis **Airstock** "
+    "en fichier `.csv` prêt à être déposé sur le portail **Airbus Helicopters** "
+    "pour l'import multi-PN."
+)
+
 st.divider()
 
+# ── Instructions d'export Airstock ───────────────────────────────────────────
+
+with st.expander("📖 Comment exporter le fichier depuis Airstock ?", expanded=True):
+    st.markdown("Suis ces étapes dans Airstock **avant** d'utiliser cet outil :")
+
+    col1, col2 = st.columns([1, 20])
+    with col1: st.markdown("**1**")
+    with col2: st.markdown("Dans ta commande Airstock, fais un **clic droit** sur la commande → sélectionne **« Imprimer »**")
+
+    col1, col2 = st.columns([1, 20])
+    with col1: st.markdown("**2**")
+    with col2: st.markdown("Le menu **« Impression du détail des commandes »** s'ouvre → clique sur **« Print (F5) »** (le bouton imprimante)")
+
+    col1, col2 = st.columns([1, 20])
+    with col1: st.markdown("**3**")
+    with col2: st.markdown("Le menu **« Edition des commandes »** s'ouvre → clique sur **« Exporter le rapport »**")
+
+    col1, col2 = st.columns([1, 20])
+    with col1: st.markdown("**4**")
+    with col2: st.markdown("Donne un **nom au fichier** (ex : `PO-26-3097`)")
+
+    col1, col2 = st.columns([1, 20])
+    with col1: st.markdown("**5**")
+    with col2:
+        st.markdown("⚠️ **Très important** : dans le menu déroulant du format, sélectionne obligatoirement :")
+        st.code("Microsoft Excel (97-2003) Données uniquement (*.xls)", language=None)
+
+    col1, col2 = st.columns([1, 20])
+    with col1: st.markdown("**6**")
+    with col2: st.markdown("Clique **Enregistrer** — ton fichier `.xls` est prêt à être déposé ci-dessous ✅")
+
+    st.info(
+        "💡 **Attention au format !** Si tu choisis un autre format que "
+        "*\"Données uniquement (*.xls)\"*, le fichier ne sera pas reconnu par cet outil.",
+        icon="⚠️"
+    )
+
+st.divider()
+
+# ── Zone de conversion ────────────────────────────────────────────────────────
+
+st.subheader("📂 Dépose ton fichier .xls")
+
 uploaded_file = st.file_uploader(
-    "📂 Sélectionne ton fichier Airstock (.xls)",
+    "Sélectionne le fichier exporté depuis Airstock",
     type=["xls"],
-    help="Fichier exporté depuis Airstock ADSoftware"
+    help="Fichier au format Microsoft Excel (97-2003) Données uniquement (*.xls)"
 )
 
 if uploaded_file is not None:
-    st.info(f"Fichier reçu : **{uploaded_file.name}** ({uploaded_file.size // 1024} Ko)")
+    st.info(f"📄 Fichier reçu : **{uploaded_file.name}** ({uploaded_file.size // 1024} Ko)")
 
-    with st.spinner("Conversion en cours..."):
+    with st.spinner("⏳ Conversion en cours..."):
         try:
-            xls_bytes        = uploaded_file.read()
+            xls_bytes            = uploaded_file.read()
             csv_content, results = convert_xls_bytes_to_csv(xls_bytes)
 
             csv_filename = uploaded_file.name.replace('.xls', '_airbus.csv')
@@ -222,8 +270,10 @@ if uploaded_file is not None:
 
             # Tableau récapitulatif
             with st.expander("📋 Voir le détail des lignes extraites"):
-                st.table({"Part Number": [r[0] for r in results],
-                          "Quantité":    [r[1] for r in results]})
+                st.table({
+                    "Part Number": [r[0] for r in results],
+                    "Quantité":    [r[1] for r in results]
+                })
 
             st.download_button(
                 label="📥 Télécharger le CSV Airbus",
@@ -232,16 +282,23 @@ if uploaded_file is not None:
                 mime="text/csv",
             )
 
+            st.markdown(
+                "➡️ Dépose ensuite ce fichier `.csv` sur le portail Airbus Helicopters "
+                "pour importer tous tes PN en une seule fois."
+            )
+
         except Exception as e:
             st.error(f"❌ Erreur lors de la conversion : {e}")
-            st.caption("Vérifiez que le fichier est bien un .xls exporté depuis Airstock.")
+            st.warning(
+                "Vérifiez que le fichier est bien exporté depuis Airstock "
+                "au format **\"Microsoft Excel (97-2003) Données uniquement (*.xls)\"**. "
+                "Tout autre format ne sera pas reconnu."
+            )
+
 else:
-    st.markdown("""
-    ### Comment ça marche ?
-    1. Clique sur **Browse files** ci-dessus
-    2. Sélectionne ton `.xls` exporté depuis Airstock
-    3. Clique sur **📥 Télécharger le CSV Airbus**
-    """)
+    st.markdown(
+        "👆 Clique sur **Browse files** (ou glisse ton fichier) pour lancer la conversion automatique."
+    )
 
 st.divider()
 st.caption("Outil interne — Helilagon Logistique")
