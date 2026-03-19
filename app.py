@@ -270,10 +270,13 @@ if uploaded_file is not None:
 
             # Tableau récapitulatif
             with st.expander("📋 Voir le détail des lignes extraites"):
-                st.table({
-                    "Part Number": [r[0] for r in results],
-                    "Quantité":    [r[1] for r in results]
-                })
+                import pandas as pd
+                df = pd.DataFrame(
+                    {"Part Number": [r[0] for r in results],
+                     "Quantité":    [r[1] for r in results]},
+                    index=range(1, len(results) + 1)
+                )
+                st.table(df)
 
             st.download_button(
                 label="📥 Télécharger le CSV Airbus",
