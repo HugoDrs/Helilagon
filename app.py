@@ -285,9 +285,16 @@ if uploaded_file is not None:
                 mime="text/csv",
             )
 
+            st.markdown("---")
+            st.markdown("### 🔜 Étape suivante")
             st.markdown(
-                "➡️ Dépose ensuite ce fichier `.csv` sur le portail Airbus Helicopters "
-                "pour importer tous tes PN en une seule fois."
+                "Une fois le CSV téléchargé, rends-toi sur le portail Airbus "
+                "pour déposer le fichier et importer tous tes PN en une seule fois :"
+            )
+            st.link_button(
+                label="🌐 Accéder au portail Airbus Helicopters (Mass Upload)",
+                url="https://keycopter.airbushelicopters.com/sparesstorefront/AHFWebsite/mass-upload",
+                use_container_width=True,
             )
 
         except Exception as e:
