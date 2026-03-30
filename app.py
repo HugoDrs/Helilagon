@@ -246,7 +246,7 @@ st.divider()
 
 # ── Instructions d'export Airstock ───────────────────────────────────────────
 
-with st.expander("📖 Comment exporter le fichier depuis Airstock ?", expanded=False):
+with st.expander("📖 Comment exporter le fichier depuis Airstock ?", expanded=True):
     st.markdown("Suis ces étapes dans Airstock **avant** d'utiliser cet outil :")
 
     col1, col2 = st.columns([1, 20])
@@ -281,10 +281,11 @@ with st.expander("📖 Comment exporter le fichier depuis Airstock ?", expanded=
         icon="⚠️"
     )
 
-    col1, col2 = st.columns([1, 20])
-    with col1: st.markdown("**7**")
-    with col2: st.markdown("Copie ton fichier depuis le dossier **« Documents »** du bureau à distance puis colle le dans un dossier en local")
+with st.expander("🎬 [TUTO] Comment exporter une commande dans un fichier .xls ?"):
+    st.video("https://raw.githubusercontent.com/HugoDrs/Helilagon/main/videos/%5BTUTO%5D%20Export%20fichier%20xls%20depuis%20Airstock.mp4")
 
+with st.expander("🎬 [TUTO] Comment importer un fichier .csv dans Airbus ?"):
+    st.video("https://raw.githubusercontent.com/HugoDrs/Helilagon/main/videos/%5BTUTO%5D%20Import%20fichier%20csv%20dans%20Airbus.mp4")
 
 st.divider()
 
