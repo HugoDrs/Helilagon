@@ -281,6 +281,11 @@ with st.expander("📖 Comment exporter le fichier depuis Airstock ?", expanded=
         icon="⚠️"
     )
 
+    col1, col2 = st.columns([1, 20])
+    with col1: st.markdown("**7**")
+    with col2: st.markdown("Copie ton fichier dans le dossier **"Documents"** du bureau à distance puis colle le dans un dossier en local")
+
+
 st.divider()
 
 # ── Zone de conversion ────────────────────────────────────────────────────────
