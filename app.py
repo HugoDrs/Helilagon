@@ -209,20 +209,26 @@ def convert_xls_bytes_to_csv(xls_bytes):
         if qty_val is None:
             continue
 
-        # Convertir la quantité
+        # Convertir la quantité en conservant les décimales significatives
         try:
-            qty = int(round(float(qty_val)))
+            qty_float = round(float(qty_val), 3)
         except (ValueError, TypeError):
             continue
 
-        if qty <= 0:
+        if qty_float <= 0:
             continue
 
-        results.append((pn_str, qty))
+        # Formater : entier si .0, sinon décimal avec virgule (norme française)
+        if qty_float == int(qty_float):
+            qty_str = str(int(qty_float))
+        else:
+            qty_str = str(qty_float).replace('.', ',')
+
+        results.append((pn_str, qty_str))
 
     csv_lines = ["PN;Quantité"]
-    for pn, qty in results:
-        csv_lines.append(f"{pn};{qty}")
+    for pn, qty_str in results:
+        csv_lines.append(f"{pn};{qty_str}")
 
     return "\n".join(csv_lines), results
 
@@ -303,7 +309,7 @@ if uploaded_file is not None:
             with st.expander("📋 Voir le détail des lignes extraites"):
                 df = pd.DataFrame(
                     {"Part Number": [r[0] for r in results],
-                     "Quantité":    [r[1] for r in results]},
+                     "Quantité":    [r[1] for r in results]},  # r[1] est déjà une str formatée
                     index=range(1, len(results) + 1)
                 )
                 st.table(df)
