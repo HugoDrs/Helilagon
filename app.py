@@ -246,7 +246,7 @@ st.divider()
 
 # ── Instructions d'export Airstock ───────────────────────────────────────────
 
-with st.expander("📖 Comment exporter le fichier depuis Airstock ?", expanded=False):
+with st.expander("📖 Comment exporter le fichier depuis Airstock ?", expanded=True):
     st.markdown("Suis ces étapes dans Airstock **avant** d'utiliser cet outil :")
 
     col1, col2 = st.columns([1, 20])
@@ -273,12 +273,41 @@ with st.expander("📖 Comment exporter le fichier depuis Airstock ?", expanded=
 
     col1, col2 = st.columns([1, 20])
     with col1: st.markdown("**6**")
-    with col2: st.markdown("Clique **Enregistrer** — ton fichier `.xls` est prêt à être déposé ci-dessous ✅")
+    with col2: st.markdown("Clique **Enregistrer** — le fichier `.xls` est maintenant enregistré dans le dossier **Documents du bureau à distance**")
+
+    st.markdown("---")
+    st.markdown("**📋 Transfert du fichier vers ton ordinateur local**")
+
+    col1, col2 = st.columns([1, 20])
+    with col1: st.markdown("**7**")
+    with col2: st.markdown("Ouvre l'**Explorateur de fichiers** du bureau à distance et navigue jusqu'au dossier **Documents**")
+
+    col1, col2 = st.columns([1, 20])
+    with col1: st.markdown("**8**")
+    with col2: st.markdown("Repère ton fichier `.xls` (ex : `PO-26-3097.xls`) → **clic droit** → **Copier**")
+
+    col1, col2 = st.columns([1, 20])
+    with col1: st.markdown("**9**")
+    with col2: st.markdown("Dans l'Explorateur de fichiers, clique sur **Ce PC** dans le panneau de gauche → tu verras apparaître ton ordinateur local sous la forme **`Lecteur (\\tsclient\...)`** ou similaire → ouvre-le")
+
+    col1, col2 = st.columns([1, 20])
+    with col1: st.markdown("**10**")
+    with col2: st.markdown("Navigue jusqu'au dossier de ton choix sur ton **PC local** (ex : Documents) → **clic droit** → **Coller**")
+
+    col1, col2 = st.columns([1, 20])
+    with col1: st.markdown("**11**")
+    with col2: st.markdown("Le fichier est maintenant sur ton PC local ✅ Tu peux le déposer dans l'outil ci-dessous !")
 
     st.info(
         "💡 **Attention au format !** Si tu choisis un autre format que "
         "*\"Données uniquement (*.xls)\"*, le fichier ne sera pas reconnu par cet outil.",
         icon="⚠️"
+    )
+    st.info(
+        "💡 **Bureau à distance non visible dans Ce PC ?** Vérifie que le partage de lecteurs locaux "
+        "est bien activé dans les **options de connexion Bureau à distance** (onglet *Ressources locales* "
+        "→ *Plus...* → coche *Lecteurs*).",
+        icon="🖥️"
     )
 
 with st.expander("🎬 [TUTO] Comment exporter une commande dans un fichier .xls ?"):
