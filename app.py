@@ -300,13 +300,6 @@ with st.expander("📖 Comment exporter le fichier depuis Airstock ?", expanded=
     with col1: st.markdown("**10**")
     with col2: st.markdown("Le fichier est maintenant sur ton PC local ✅ Tu peux le déposer dans l'outil ci-dessous !")
 
-    st.info(
-        "💡 **Bureau à distance non visible dans Ce PC ?** Vérifie que le partage de lecteurs locaux "
-        "est bien activé dans les **options de connexion Bureau à distance** (onglet *Ressources locales* "
-        "→ *Plus...* → coche *Lecteurs*).",
-        icon="🖥️"
-    )
-
 with st.expander("🎬 [TUTO] Comment exporter une commande dans un fichier .xls ?"):
     st.video("https://raw.githubusercontent.com/HugoDrs/Helilagon/main/videos/%5BTUTO%5D%20Export%20fichier%20xls%20depuis%20Airstock.mp4")
 
