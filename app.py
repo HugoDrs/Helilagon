@@ -239,7 +239,7 @@ def convert_xls_bytes_to_csv(xls_bytes):
 
         results.append((pn_str, qty_str))
 
-    csv_lines = ["PN;Quantité"]
+    csv_lines = ["Ordered Reference;Quantity"]
     for pn, qty_str in results:
         csv_lines.append(f"{pn};{qty_str}")
 
