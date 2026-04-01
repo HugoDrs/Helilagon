@@ -22,11 +22,24 @@ def u32(data, pos): return struct.unpack_from('<I', data, pos)[0]
 def f64(data, pos): return struct.unpack_from('<d', data, pos)[0]
 
 def find_sst_offset(data):
+    """
+    Cherche la vraie SST dans le fichier BIFF8.
+    Certains fichiers Airstock contiennent de faux enregistrements 0xFC00
+    avant la vraie SST (artefacts Crystal Reports). On valide donc que :
+    - total_strings et unique_strings sont cohérents (égaux et > 0)
+    - unique_strings est une valeur raisonnable (< 10 000)
+    """
     pos = 0
     while True:
         idx = data.find(b'\xfc\x00', pos)
         if idx == -1: return None
-        if u16(data, idx + 2) >= 8: return idx
+        rec_len = u16(data, idx + 2)
+        if rec_len >= 8 and idx + 12 <= len(data):
+            total  = u32(data, idx + 4)
+            unique = u32(data, idx + 8)
+            # SST valide : total >= unique, valeurs raisonnables, et au moins 1 string
+            if 0 < unique <= 10000 and total >= unique:
+                return idx
         pos = idx + 1
 
 def parse_sst(data, sst_offset):
@@ -246,7 +259,7 @@ st.divider()
 
 # ── Instructions d'export Airstock ───────────────────────────────────────────
 
-with st.expander("📖 Comment exporter le fichier depuis Airstock ?", expanded=False):
+with st.expander("📖 Comment exporter le fichier depuis Airstock ?", expanded=True):
     st.markdown("Suis ces étapes dans Airstock **avant** d'utiliser cet outil :")
 
     col1, col2 = st.columns([1, 20])
@@ -275,12 +288,6 @@ with st.expander("📖 Comment exporter le fichier depuis Airstock ?", expanded=
     with col1: st.markdown("**6**")
     with col2: st.markdown("Clique **Enregistrer** — le fichier `.xls` est maintenant enregistré dans le dossier **Documents du bureau à distance**")
 
-    st.info(
-        "💡 **Attention au format !** Si tu choisis un autre format que "
-        "*\"Données uniquement (*.xls)\"*, le fichier ne sera pas reconnu par cet outil.",
-        icon="⚠️"
-    )
-    
     st.markdown("---")
     st.markdown("**📋 Transfert du fichier vers ton ordinateur local**")
 
@@ -294,11 +301,27 @@ with st.expander("📖 Comment exporter le fichier depuis Airstock ?", expanded=
 
     col1, col2 = st.columns([1, 20])
     with col1: st.markdown("**9**")
-    with col2: st.markdown("Navigue jusqu'au dossier de ton choix sur ton **PC local** (ex : Documents) → **clic droit** → **Coller**")
+    with col2: st.markdown("Dans l'Explorateur de fichiers, clique sur **Ce PC** dans le panneau de gauche → tu verras apparaître ton ordinateur local sous la forme **`Lecteur (\\tsclient\...)`** ou similaire → ouvre-le")
 
     col1, col2 = st.columns([1, 20])
     with col1: st.markdown("**10**")
+    with col2: st.markdown("Navigue jusqu'au dossier de ton choix sur ton **PC local** (ex : Documents) → **clic droit** → **Coller**")
+
+    col1, col2 = st.columns([1, 20])
+    with col1: st.markdown("**11**")
     with col2: st.markdown("Le fichier est maintenant sur ton PC local ✅ Tu peux le déposer dans l'outil ci-dessous !")
+
+    st.info(
+        "💡 **Attention au format !** Si tu choisis un autre format que "
+        "*\"Données uniquement (*.xls)\"*, le fichier ne sera pas reconnu par cet outil.",
+        icon="⚠️"
+    )
+    st.info(
+        "💡 **Bureau à distance non visible dans Ce PC ?** Vérifie que le partage de lecteurs locaux "
+        "est bien activé dans les **options de connexion Bureau à distance** (onglet *Ressources locales* "
+        "→ *Plus...* → coche *Lecteurs*).",
+        icon="🖥️"
+    )
 
 with st.expander("🎬 [TUTO] Comment exporter une commande dans un fichier .xls ?"):
     st.video("https://raw.githubusercontent.com/HugoDrs/Helilagon/main/videos/%5BTUTO%5D%20Export%20fichier%20xls%20depuis%20Airstock.mp4")
