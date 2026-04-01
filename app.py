@@ -259,7 +259,7 @@ st.divider()
 
 # ── Instructions d'export Airstock ───────────────────────────────────────────
 
-with st.expander("📖 Comment exporter le fichier depuis Airstock ?", expanded=True):
+with st.expander("📖 Comment exporter le fichier depuis Airstock ?", expanded=False):
     st.markdown("Suis ces étapes dans Airstock **avant** d'utiliser cet outil :")
 
     col1, col2 = st.columns([1, 20])
