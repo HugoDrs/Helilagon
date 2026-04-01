@@ -275,6 +275,12 @@ with st.expander("📖 Comment exporter le fichier depuis Airstock ?", expanded=
     with col1: st.markdown("**6**")
     with col2: st.markdown("Clique **Enregistrer** — le fichier `.xls` est maintenant enregistré dans le dossier **Documents du bureau à distance**")
 
+    st.info(
+        "💡 **Attention au format !** Si tu choisis un autre format que "
+        "*\"Données uniquement (*.xls)\"*, le fichier ne sera pas reconnu par cet outil.",
+        icon="⚠️"
+    )
+    
     st.markdown("---")
     st.markdown("**📋 Transfert du fichier vers ton ordinateur local**")
 
@@ -294,11 +300,6 @@ with st.expander("📖 Comment exporter le fichier depuis Airstock ?", expanded=
     with col1: st.markdown("**10**")
     with col2: st.markdown("Le fichier est maintenant sur ton PC local ✅ Tu peux le déposer dans l'outil ci-dessous !")
 
-    st.info(
-        "💡 **Attention au format !** Si tu choisis un autre format que "
-        "*\"Données uniquement (*.xls)\"*, le fichier ne sera pas reconnu par cet outil.",
-        icon="⚠️"
-    )
     st.info(
         "💡 **Bureau à distance non visible dans Ce PC ?** Vérifie que le partage de lecteurs locaux "
         "est bien activé dans les **options de connexion Bureau à distance** (onglet *Ressources locales* "
