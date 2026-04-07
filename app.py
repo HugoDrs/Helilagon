@@ -1,5 +1,5 @@
 import streamlit as st
-import io
+import struct
 import re
 import pandas as pd
 
@@ -11,66 +11,216 @@ st.set_page_config(
     layout="centered"
 )
 
-# ── Fonctions de conversion (moteur) ─────────────────────────────────────────
+# ── Moteur de conversion BIFF8 ────────────────────────────────────────────────
 
-# Mots-clés présents dans les lignes de pied de page / en-tête à ignorer
-FOOTER_KEYWORDS = (
-    'Total', 'Toutes les', 'HELILAGON', 'Page', 'COMMANDE',
-    'EUR', 'Livraison avant', 'PN - description', 'Quantité',
-    'Payment terms', 'Cpte fourn', 'Destinataire',
-)
+COL_PN     = 1   # Colonne B
+COL_QTY    = 2   # Colonne C
+HEADER_ROW = 3   # Lignes 0-3 = en-têtes à ignorer
 
-def is_footer(val):
-    """Retourne True si la valeur correspond à une ligne à ignorer."""
-    if val is None:
-        return True
+def u16(data, pos): return struct.unpack_from('<H', data, pos)[0]
+def u32(data, pos): return struct.unpack_from('<I', data, pos)[0]
+def f64(data, pos): return struct.unpack_from('<d', data, pos)[0]
+
+def find_sst_offset(data):
+    """
+    Cherche la vraie SST (Shared String Table) dans le fichier BIFF8.
+    Ignore les faux positifs Crystal Reports (unique=0 ou valeurs incohérentes).
+    """
+    pos = 0
+    while True:
+        idx = data.find(b'\xfc\x00', pos)
+        if idx == -1: return None
+        rec_len = u16(data, idx + 2)
+        if rec_len >= 8 and idx + 12 <= len(data):
+            total  = u32(data, idx + 4)
+            unique = u32(data, idx + 8)
+            if 0 < unique <= 10000 and total >= unique:
+                return idx
+        pos = idx + 1
+
+def parse_sst(data, sst_offset):
+    """Parse la Shared String Table BIFF8. Retourne une liste de str."""
+    unique_count = u32(data, sst_offset + 8)
+    pos = sst_offset + 12
+    strings = []
+    for _ in range(unique_count):
+        if pos + 3 > len(data): strings.append(None); continue
+        str_len    = u16(data, pos)
+        flags      = data[pos + 2]
+        compressed = not (flags & 0x01)
+        has_rich   = bool(flags & 0x08)
+        has_phonet = bool(flags & 0x04)
+        pos += 3
+        rich_count = phonetic_size = 0
+        if has_rich:   rich_count    = u16(data, pos); pos += 2
+        if has_phonet: phonetic_size = u32(data, pos); pos += 4
+        byte_count = str_len if compressed else str_len * 2
+        if pos + byte_count > len(data):
+            strings.append(None)
+            pos += byte_count + rich_count * 4 + phonetic_size
+            continue
+        try:
+            enc = 'latin-1' if compressed else 'utf-16-le'
+            s   = data[pos:pos + byte_count].decode(enc, errors='replace')
+            if s.count('\ufffd') > 2 or any(ord(c) > 0x2000 for c in s):
+                s = None
+        except:
+            s = None
+        pos += byte_count + rich_count * 4 + phonetic_size
+        strings.append(s)
+    return strings
+
+def parse_early_pool(data, sst_offset):
+    """
+    Récupère les PNs du pool Crystal Reports situé avant la SST.
+    Nécessaire pour les PNs corrompus en SST (bug Crystal Reports).
+    """
+    pn_re     = re.compile(r'^[A-Z0-9][A-Z0-9\-\.\,]{2,49}$')
+    pn_sep_re = re.compile(r'[0-9\-\.\,]')
+    def is_pn(s):
+        return bool(pn_re.match(s) and pn_sep_re.search(s))
+    pns = []
+    pos = 0
+    while pos < sst_offset - 3:
+        if pos + 3 > len(data): break
+        str_len = u16(data, pos)
+        flags   = data[pos + 2]
+        if flags == 0x01 and 3 <= str_len <= 50:
+            bc  = str_len * 2
+            end = pos + 3 + bc
+            if end <= sst_offset:
+                try:
+                    s = data[pos + 3:end].decode('utf-16-le', errors='strict')
+                    if s.isprintable() and is_pn(s):
+                        pns.append(s)
+                except: pass
+        pos += 1
+    return pns
+
+def build_fallback_pn_list(early_pns):
+    """
+    Insère la version sans 'LE' avant chaque PN se terminant par 'LE'
+    (ex: '23351CA060' avant '23351CA060LE').
+    """
+    pn_re     = re.compile(r'^[A-Z0-9][A-Z0-9\-\.\,]{2,49}$')
+    pn_sep_re = re.compile(r'[0-9\-\.\,]')
+    result = []
+    for pn in early_pns:
+        if pn.endswith('LE') and len(pn) > 4:
+            t = pn[:-2]
+            if pn_re.match(t) and pn_sep_re.search(t) and t not in result:
+                result.append(t)
+        if pn not in result:
+            result.append(pn)
+    return result
+
+def parse_cells(data, strings):
+    """Collecte toutes les cellules LABELSST (texte) et NUMBER (numérique)."""
+    cells = {}
+    pos = 0
+    while True:
+        idx = data.find(b'\xfd\x00', pos)
+        if idx == -1: break
+        if idx + 14 <= len(data) and u16(data, idx + 2) == 10:
+            row     = u16(data, idx + 4)
+            col     = u16(data, idx + 6)
+            sst_idx = u32(data, idx + 10)
+            cells[(row, col)] = strings[sst_idx] if sst_idx < len(strings) else None
+        pos = idx + 1
+    pos = 0
+    while True:
+        idx = data.find(b'\x03\x02', pos)
+        if idx == -1: break
+        if idx + 18 <= len(data) and u16(data, idx + 2) == 14:
+            row = u16(data, idx + 4)
+            col = u16(data, idx + 6)
+            cells[(row, col)] = f64(data, idx + 10)
+        pos = idx + 1
+    return cells
+
+def fill_corrupted_pns(cells, fallback_pns):
+    """Remplace les PN None (SST corrompue) par les PNs du pool Crystal Reports."""
+    if not fallback_pns: return cells
+    broken_rows = sorted(
+        row for (row, col), val in cells.items()
+        if col == COL_PN and val is None
+    )
+    for row, pn in zip(broken_rows, fallback_pns):
+        cells[(row, COL_PN)] = pn
+    return cells
+
+def is_header_or_footer(val):
+    """
+    Détecte les lignes à ignorer : en-têtes et pieds de page Airstock.
+    Règles structurelles UNIQUEMENT — aucun mot-clé, aucun test de contenu
+    qui risquerait de filtrer un vrai PN.
+
+    Les seuls critères fiables :
+    - Cellule multi-lignes (en-tête fusionné Airstock)
+    - Date/heure en début de chaîne (pied de page Airstock)
+    La colonne C (quantité) sert de garde-fou principal : si qty est None,
+    la ligne est ignorée avant même d'arriver ici.
+    """
+    if val is None: return True
     s = str(val).strip()
-    if not s or s == 'nan':
-        return True
-    # Lignes multi-paragraphes (cellules fusionnées d'en-tête)
-    if '\n' in s:
-        return True
-    # Mots-clés de pied de page / en-tête
-    if any(kw in s for kw in FOOTER_KEYWORDS):
-        return True
-    # Date (ex: "18/04/2026")
-    if re.match(r'\d{2}/\d{2}/\d{4}', s):
-        return True
+    if not s: return True
+
+    # Cellules multi-lignes = en-têtes fusionnés (adresse, mentions légales...)
+    if '\n' in s: return True
+
+    # Date/heure = dernière ligne du fichier Airstock (ex: "07/04/2026  14:09")
+    if re.match(r'^\d{2}/\d{2}/\d{4}', s): return True
+
     return False
 
 def convert_xls_bytes_to_csv(xls_bytes):
     """
-    Lit le fichier .xls Airstock avec pandas/xlrd (moteur fiable).
-    Structure du fichier :
-      - Lignes 0–3 : en-têtes à ignorer (header=None)
-      - Col 1 (B) : Part Number
-      - Col 2 (C) : Quantité
-    Entre chaque article, Airstock insère une ligne "Livraison avant le…"
-    et une ligne vide — pandas les lit normalement, elles sont filtrées
-    par is_footer() et par le test qty > 0.
-    """
-    df = pd.read_excel(io.BytesIO(xls_bytes), engine='xlrd', header=None)
+    Convertit les bytes d'un .xls Airstock en CSV Airbus.
 
-    results = []
-    for i, row in df.iterrows():
-        # Ignorer les 4 premières lignes (en-têtes Airstock)
-        if i < 4:
+    Stratégie :
+    - Lecture directe du format BIFF8 (sans pandas/xlrd)
+    - Col B (col=1) = PN, Col C (col=2) = Quantité
+    - Ignorer lignes 0-3 (en-têtes) et lignes de pied de page
+    - Filtrage structurel uniquement (pas de mots-clés fragiles)
+    """
+    data = xls_bytes
+
+    sst_offset = find_sst_offset(data)
+    if sst_offset is None:
+        raise ValueError(
+            "Table SST introuvable. "
+            "Vérifiez que le fichier est bien un .xls Airstock (Excel 97-2003)."
+        )
+
+    strings      = parse_sst(data, sst_offset)
+    early_pns    = parse_early_pool(data, sst_offset)
+    fallback_pns = build_fallback_pn_list(early_pns)
+    cells        = parse_cells(data, strings)
+    cells        = fill_corrupted_pns(cells, fallback_pns)
+
+    all_rows = sorted(set(row for (row, _) in cells))
+    results  = []
+
+    for row in all_rows:
+        if row <= HEADER_ROW:
             continue
 
-        pn_val  = row[1]
-        qty_val = row[2]
+        pn_val  = cells.get((row, COL_PN))
+        qty_val = cells.get((row, COL_QTY))
 
-        # Ignorer si PN absent ou ligne de pied de page
-        if pd.isna(pn_val) or is_footer(pn_val):
+        # Pas de quantité = ligne footer/total
+        if qty_val is None:
+            continue
+
+        # PN absent ou ligne d'en-tête/pied de page
+        if is_header_or_footer(pn_val):
             continue
 
         pn_str = str(pn_val).strip()
         if not pn_str:
             continue
 
-        # Ignorer si quantité absente ou non numérique
-        if pd.isna(qty_val):
-            continue
+        # Quantité
         try:
             qty_float = round(float(qty_val), 3)
         except (ValueError, TypeError):
@@ -79,7 +229,7 @@ def convert_xls_bytes_to_csv(xls_bytes):
         if qty_float <= 0:
             continue
 
-        # Formater : entier si .0, sinon décimal avec virgule (norme française)
+        # Formater : entier si .0, sinon décimal avec virgule
         if qty_float == int(qty_float):
             qty_str = str(int(qty_float))
         else:
@@ -87,7 +237,7 @@ def convert_xls_bytes_to_csv(xls_bytes):
 
         results.append((pn_str, qty_str))
 
-    csv_lines = ["Ordered Reference;Quantity"]
+    csv_lines = ["PN;Quantité"]
     for pn, qty_str in results:
         csv_lines.append(f"{pn};{qty_str}")
 
@@ -149,10 +299,14 @@ with st.expander("📖 Comment exporter le fichier depuis Airstock ?", expanded=
 
     col1, col2 = st.columns([1, 20])
     with col1: st.markdown("**9**")
-    with col2: st.markdown("Navigue jusqu'au dossier de ton choix sur ton **PC local** (ex : Documents) → **clic droit** → **Coller**")
+    with col2: st.markdown("Dans l'Explorateur de fichiers, clique sur **Ce PC** dans le panneau de gauche → tu verras apparaître ton ordinateur local sous la forme **`Lecteur (\\\\tsclient\\...)`** ou similaire → ouvre-le")
 
     col1, col2 = st.columns([1, 20])
     with col1: st.markdown("**10**")
+    with col2: st.markdown("Navigue jusqu'au dossier de ton choix sur ton **PC local** (ex : Documents) → **clic droit** → **Coller**")
+
+    col1, col2 = st.columns([1, 20])
+    with col1: st.markdown("**11**")
     with col2: st.markdown("Le fichier est maintenant sur ton PC local ✅ Tu peux le déposer dans l'outil ci-dessous !")
 
     st.info(
@@ -201,7 +355,7 @@ if uploaded_file is not None:
             with st.expander("📋 Voir le détail des lignes extraites"):
                 df = pd.DataFrame(
                     {"Part Number": [r[0] for r in results],
-                     "Quantité":    [r[1] for r in results]},  # r[1] est déjà une str formatée
+                     "Quantité":    [r[1] for r in results]},
                     index=range(1, len(results) + 1)
                 )
                 st.table(df)
