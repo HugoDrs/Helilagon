@@ -191,8 +191,6 @@ def convert_xls_bytes_to_csv(xls_bytes):
 # ════════════════════════════════════════════════════════════════════════════
 # ONGLET 1 — CONVERTISSEUR
 # ════════════════════════════════════════════════════════════════════════════
-with tab_app:
-
     st.title("🚁 Airstock → Airbus CSV")
     st.markdown(
         "Convertit automatiquement un fichier `.xls` exporté depuis **Airstock** "
