@@ -296,14 +296,6 @@ with tab_app:
                 csv_filename         = uploaded_file.name.replace('.xls', '_airbus.csv')
                 csv_bytes            = csv_content.encode('utf-8-sig')
 
-                # ── Log succès ────────────────────────────────────────────────
-                log_conversion(
-                    filename  = uploaded_file.name,
-                    nb_pn     = len(results),
-                    status    = "✅ Succès",
-                    error_msg = ""
-                )
-
                 st.success(f"✅ **{len(results)} Part Number(s)** extraits avec succès !")
 
                 with st.expander("📋 Voir le détail des lignes extraites"):
