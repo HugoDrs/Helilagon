@@ -188,8 +188,6 @@ def convert_xls_bytes_to_csv(xls_bytes):
 
 # ── Interface Streamlit ───────────────────────────────────────────────────────
 
-tab_app, tab_dashboard = st.tabs(["🚁 Convertisseur", "📊 Dashboard"])
-
 # ════════════════════════════════════════════════════════════════════════════
 # ONGLET 1 — CONVERTISSEUR
 # ════════════════════════════════════════════════════════════════════════════
