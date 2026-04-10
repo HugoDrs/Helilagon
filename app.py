@@ -2,6 +2,8 @@ import streamlit as st
 import struct
 import re
 import pandas as pd
+import requests
+from datetime import datetime, timezone
 
 # ── Configuration de la page ──────────────────────────────────────────────────
 
@@ -13,19 +15,15 @@ st.set_page_config(
 
 # ── Moteur de conversion BIFF8 ────────────────────────────────────────────────
 
-COL_PN     = 1   # Colonne B
-COL_QTY    = 2   # Colonne C
-HEADER_ROW = 3   # Lignes 0-3 = en-têtes à ignorer
+COL_PN     = 1
+COL_QTY    = 2
+HEADER_ROW = 3
 
 def u16(data, pos): return struct.unpack_from('<H', data, pos)[0]
 def u32(data, pos): return struct.unpack_from('<I', data, pos)[0]
 def f64(data, pos): return struct.unpack_from('<d', data, pos)[0]
 
 def find_sst_offset(data):
-    """
-    Cherche la vraie SST (Shared String Table) dans le fichier BIFF8.
-    Ignore les faux positifs Crystal Reports (unique=0 ou valeurs incohérentes).
-    """
     pos = 0
     while True:
         idx = data.find(b'\xfc\x00', pos)
@@ -39,7 +37,6 @@ def find_sst_offset(data):
         pos = idx + 1
 
 def parse_sst(data, sst_offset):
-    """Parse la Shared String Table BIFF8. Retourne une liste de str."""
     unique_count = u32(data, sst_offset + 8)
     pos = sst_offset + 12
     strings = []
@@ -71,14 +68,9 @@ def parse_sst(data, sst_offset):
     return strings
 
 def parse_early_pool(data, sst_offset):
-    """
-    Récupère les PNs du pool Crystal Reports situé avant la SST.
-    Nécessaire pour les PNs corrompus en SST (bug Crystal Reports).
-    """
     pn_re     = re.compile(r'^[A-Z0-9][A-Z0-9\-\.\,]{2,49}$')
     pn_sep_re = re.compile(r'[0-9\-\.\,]')
-    def is_pn(s):
-        return bool(pn_re.match(s) and pn_sep_re.search(s))
+    def is_pn(s): return bool(pn_re.match(s) and pn_sep_re.search(s))
     pns = []
     pos = 0
     while pos < sst_offset - 3:
@@ -91,17 +83,12 @@ def parse_early_pool(data, sst_offset):
             if end <= sst_offset:
                 try:
                     s = data[pos + 3:end].decode('utf-16-le', errors='strict')
-                    if s.isprintable() and is_pn(s):
-                        pns.append(s)
+                    if s.isprintable() and is_pn(s): pns.append(s)
                 except: pass
         pos += 1
     return pns
 
 def build_fallback_pn_list(early_pns):
-    """
-    Insère la version sans 'LE' avant chaque PN se terminant par 'LE'
-    (ex: '23351CA060' avant '23351CA060LE').
-    """
     pn_re     = re.compile(r'^[A-Z0-9][A-Z0-9\-\.\,]{2,49}$')
     pn_sep_re = re.compile(r'[0-9\-\.\,]')
     result = []
@@ -115,7 +102,6 @@ def build_fallback_pn_list(early_pns):
     return result
 
 def parse_cells(data, strings):
-    """Collecte toutes les cellules LABELSST (texte) et NUMBER (numérique)."""
     cells = {}
     pos = 0
     while True:
@@ -139,7 +125,6 @@ def parse_cells(data, strings):
     return cells
 
 def fill_corrupted_pns(cells, fallback_pns):
-    """Remplace les PN None (SST corrompue) par les PNs du pool Crystal Reports."""
     if not fallback_pns: return cells
     broken_rows = sorted(
         row for (row, col), val in cells.items()
@@ -150,98 +135,88 @@ def fill_corrupted_pns(cells, fallback_pns):
     return cells
 
 def is_header_or_footer(val):
-    """
-    Détecte les lignes à ignorer : en-têtes et pieds de page Airstock.
-    Règles structurelles UNIQUEMENT — aucun mot-clé, aucun test de contenu
-    qui risquerait de filtrer un vrai PN.
-
-    Les seuls critères fiables :
-    - Cellule multi-lignes (en-tête fusionné Airstock)
-    - Date/heure en début de chaîne (pied de page Airstock)
-    La colonne C (quantité) sert de garde-fou principal : si qty est None,
-    la ligne est ignorée avant même d'arriver ici.
-    """
     if val is None: return True
     s = str(val).strip()
     if not s: return True
-
-    # Cellules multi-lignes = en-têtes fusionnés (adresse, mentions légales...)
     if '\n' in s: return True
-
-    # Date/heure = dernière ligne du fichier Airstock (ex: "07/04/2026  14:09")
     if re.match(r'^\d{2}/\d{2}/\d{4}', s): return True
-
     return False
 
 def convert_xls_bytes_to_csv(xls_bytes):
-    """
-    Convertit les bytes d'un .xls Airstock en CSV Airbus.
-
-    Stratégie :
-    - Lecture directe du format BIFF8 (sans pandas/xlrd)
-    - Col B (col=1) = PN, Col C (col=2) = Quantité
-    - Ignorer lignes 0-3 (en-têtes) et lignes de pied de page
-    - Filtrage structurel uniquement (pas de mots-clés fragiles)
-    """
     data = xls_bytes
-
     sst_offset = find_sst_offset(data)
     if sst_offset is None:
         raise ValueError(
             "Table SST introuvable. "
             "Vérifiez que le fichier est bien un .xls Airstock (Excel 97-2003)."
         )
-
     strings      = parse_sst(data, sst_offset)
     early_pns    = parse_early_pool(data, sst_offset)
     fallback_pns = build_fallback_pn_list(early_pns)
     cells        = parse_cells(data, strings)
     cells        = fill_corrupted_pns(cells, fallback_pns)
-
-    all_rows = sorted(set(row for (row, _) in cells))
-    results  = []
-
+    all_rows     = sorted(set(row for (row, _) in cells))
+    results      = []
     for row in all_rows:
-        if row <= HEADER_ROW:
-            continue
-
+        if row <= HEADER_ROW: continue
         pn_val  = cells.get((row, COL_PN))
         qty_val = cells.get((row, COL_QTY))
-
-        # Pas de quantité = ligne footer/total
-        if qty_val is None:
-            continue
-
-        # PN absent ou ligne d'en-tête/pied de page
-        if is_header_or_footer(pn_val):
-            continue
-
+        if qty_val is None: continue
+        if is_header_or_footer(pn_val): continue
         pn_str = str(pn_val).strip()
-        if not pn_str:
-            continue
-
-        # Quantité
+        if not pn_str: continue
         try:
             qty_float = round(float(qty_val), 3)
         except (ValueError, TypeError):
             continue
-
-        if qty_float <= 0:
-            continue
-
-        # Formater : entier si .0, sinon décimal avec virgule
-        if qty_float == int(qty_float):
-            qty_str = str(int(qty_float))
-        else:
-            qty_str = str(qty_float).replace('.', ',')
-
+        if qty_float <= 0: continue
+        qty_str = str(int(qty_float)) if qty_float == int(qty_float) else str(qty_float).replace('.', ',')
         results.append((pn_str, qty_str))
-
-    csv_lines = ["Ordered Reference;Quantity"]
+    csv_lines = ["PN;Quantité"]
     for pn, qty_str in results:
         csv_lines.append(f"{pn};{qty_str}")
-
     return "\n".join(csv_lines), results
+
+
+# ── Monitoring Supabase ───────────────────────────────────────────────────────
+
+def _supa_headers():
+    return {
+        "apikey":        st.secrets["SUPABASE_KEY"],
+        "Authorization": f"Bearer {st.secrets['SUPABASE_KEY']}",
+        "Content-Type":  "application/json",
+        "Prefer":        "return=minimal",
+    }
+
+def log_conversion(nom_fichier: str, nb_pn: int, pn_list: list):
+    """
+    Enregistre une conversion dans Supabase.
+    Silencieux en cas d'erreur — ne bloque jamais l'app.
+    """
+    try:
+        url  = st.secrets["SUPABASE_URL"] + "/rest/v1/conversions"
+        payload = {
+            "nom_fichier": nom_fichier,
+            "nb_pn":       nb_pn,
+            "pn_list":     ", ".join(pn_list),
+        }
+        requests.post(url, json=payload, headers=_supa_headers(), timeout=5)
+    except Exception:
+        pass  # Le monitoring ne doit jamais faire planter l'app
+
+def fetch_conversions():
+    """Récupère tout l'historique depuis Supabase."""
+    try:
+        url = (
+            st.secrets["SUPABASE_URL"]
+            + "/rest/v1/conversions"
+            + "?select=*&order=created_at.desc"
+        )
+        r = requests.get(url, headers=_supa_headers(), timeout=5)
+        r.raise_for_status()
+        return r.json()
+    except Exception as e:
+        return None
 
 
 # ── Interface Streamlit ───────────────────────────────────────────────────────
@@ -352,6 +327,13 @@ if uploaded_file is not None:
 
             st.success(f"✅ **{len(results)} Part Number(s)** extraits avec succès !")
 
+            # ── Enregistrement monitoring (silencieux) ──────────────────────
+            log_conversion(
+                nom_fichier = uploaded_file.name,
+                nb_pn       = len(results),
+                pn_list     = [r[0] for r in results],
+            )
+
             with st.expander("📋 Voir le détail des lignes extraites"):
                 df = pd.DataFrame(
                     {"Part Number": [r[0] for r in results],
@@ -393,4 +375,86 @@ else:
     )
 
 st.divider()
+
+# ── Tableau de bord monitoring (protégé par mot de passe) ────────────────────
+
+with st.expander("🔒 Tableau de bord — Accès administrateur"):
+    pwd = st.text_input("Mot de passe", type="password", key="admin_pwd")
+
+    ADMIN_PWD = st.secrets.get("ADMIN_PASSWORD", "helilagon2024")
+
+    if pwd == ADMIN_PWD:
+
+        data = fetch_conversions()
+
+        if data is None:
+            st.error("❌ Impossible de contacter Supabase.")
+
+        elif len(data) == 0:
+            st.info("Aucune conversion enregistrée pour le moment.")
+
+        else:
+            # ── Stats globales ──────────────────────────────────────────────
+            nb_conversions = len(data)
+            nb_pn_total    = sum(row["nb_pn"] for row in data)
+            derniere       = data[0]["created_at"][:10]  # YYYY-MM-DD
+
+            col1, col2, col3 = st.columns(3)
+            col1.metric("📁 Fichiers convertis", nb_conversions)
+            col2.metric("🔩 PN traités au total", nb_pn_total)
+            col3.metric("📅 Dernière conversion", derniere)
+
+            st.markdown("---")
+
+            # ── Graphique conversions par jour ──────────────────────────────
+            df_hist = pd.DataFrame(data)
+            df_hist["date"] = pd.to_datetime(df_hist["created_at"]).dt.date
+            df_par_jour = (
+                df_hist.groupby("date")
+                .agg(nb_fichiers=("id", "count"), nb_pn=("nb_pn", "sum"))
+                .reset_index()
+                .sort_values("date")
+            )
+
+            st.markdown("#### 📈 Activité par jour")
+            col_g1, col_g2 = st.columns(2)
+            with col_g1:
+                st.markdown("**Fichiers convertis**")
+                st.bar_chart(df_par_jour.set_index("date")["nb_fichiers"])
+            with col_g2:
+                st.markdown("**PN traités**")
+                st.bar_chart(df_par_jour.set_index("date")["nb_pn"])
+
+            st.markdown("---")
+
+            # ── Historique détaillé ─────────────────────────────────────────
+            st.markdown("#### 🗂️ Historique des conversions")
+            df_display = pd.DataFrame([{
+                "Date"        : row["created_at"][:19].replace("T", " "),
+                "Fichier"     : row["nom_fichier"],
+                "Nb PN"       : row["nb_pn"],
+                "Liste PN"    : row["pn_list"],
+            } for row in data])
+
+            st.dataframe(
+                df_display,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Liste PN": st.column_config.TextColumn(width="large"),
+                }
+            )
+
+            # ── Export de l'historique ──────────────────────────────────────
+            csv_monitoring = df_display.to_csv(index=False, sep=";").encode("utf-8-sig")
+            st.download_button(
+                label="📥 Exporter l'historique en CSV",
+                data=csv_monitoring,
+                file_name=f"monitoring_airstock_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+            )
+
+    elif pwd != "":
+        st.error("❌ Mot de passe incorrect.")
+
 st.caption("Outil interne — Helilagon Logistique")
