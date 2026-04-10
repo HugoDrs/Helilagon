@@ -218,7 +218,7 @@ def fetch_conversions():
     except Exception as e:
         return None
 
-CONVERSION_LIMIT = 100
+CONVERSION_LIMIT = 10
 
 def count_conversions():
     """Retourne le nombre de conversions enregistrées, ou None si erreur Supabase."""
