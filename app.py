@@ -221,6 +221,50 @@ def fetch_conversions():
 
 # ── Interface Streamlit ───────────────────────────────────────────────────────
 
+# ── Bandeau de progression paiement ─────────────────────────────────────────
+
+recu    = 239
+total   = 500
+restant = total - recu
+pct     = int(recu / total * 100)
+
+st.markdown(f"""
+<div style="
+    background: #f0f0f0;
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 20px;
+    border: 2px solid #cc0000;
+">
+    <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+        <span style="font-weight: bold; color: #cc0000; font-size: 15px;">
+            💸 Paiement outil de conversion Airstock → Airbus
+        </span>
+        <span style="font-weight: bold; color: #cc0000; font-size: 15px;">
+            {recu}€ reçus / {total}€ — il reste <b>{restant}€</b> 👀
+        </span>
+    </div>
+    <div style="background:#e0e0e0; border-radius:8px; height:28px; width:100%; overflow:hidden;">
+        <div style="
+            background: linear-gradient(90deg, #cc0000, #ff1a1a);
+            width: {pct}%;
+            height: 100%;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            font-weight: bold;
+            font-size: 14px;
+            transition: width 0.5s;
+        ">{pct}% payé</div>
+    </div>
+    <div style="text-align:center; margin-top:8px; color:#888; font-size:12px;">
+        ⏳ Départ lundi — la montre tourne Nadège 🕐
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
 st.title("🚁 Airstock → Airbus CSV")
 st.markdown(
     "Convertit automatiquement un fichier `.xls` exporté depuis **Airstock** "
