@@ -172,7 +172,7 @@ def convert_xls_bytes_to_csv(xls_bytes):
         if qty_float <= 0: continue
         qty_str = str(int(qty_float)) if qty_float == int(qty_float) else str(qty_float).replace('.', ',')
         results.append((pn_str, qty_str))
-    csv_lines = ["PN;Quantité"]
+    csv_lines = ["Ordered Reference;Quantity"]
     for pn, qty_str in results:
         csv_lines.append(f"{pn};{qty_str}")
     return "\n".join(csv_lines), results
