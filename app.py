@@ -218,6 +218,28 @@ def fetch_conversions():
     except Exception as e:
         return None
 
+CONVERSION_LIMIT = 100
+
+def count_conversions():
+    """Retourne le nombre de conversions enregistrées, ou None si erreur Supabase."""
+    try:
+        headers = _supa_headers()
+        headers["Prefer"] = "count=exact"
+        url = (
+            st.secrets["SUPABASE_URL"]
+            + "/rest/v1/conversions"
+            + "?select=id"
+        )
+        r = requests.get(url, headers=headers, timeout=5)
+        r.raise_for_status()
+        # Supabase retourne le total dans le header Content-Range : "0-N/TOTAL"
+        content_range = r.headers.get("Content-Range", "")
+        if "/" in content_range:
+            return int(content_range.split("/")[1])
+        return len(r.json())
+    except Exception:
+        return None
+
 
 # ── Interface Streamlit ───────────────────────────────────────────────────────
 
@@ -227,6 +249,20 @@ recu    = 239
 total   = 478
 restant = total - recu
 pct     = int(recu / total * 100)
+
+# Récupération du compteur de conversions pour le bandeau
+_nb_conv   = count_conversions()
+_conv_used = _nb_conv if _nb_conv is not None else 0
+_conv_left = max(0, CONVERSION_LIMIT - _conv_used)
+
+if _nb_conv is None:
+    _conv_line = "<em style='color:#aaa;'>Compteur indisponible</em>"
+elif _conv_left == 0:
+    _conv_line = "🔴 <b>Limite atteinte — outil bloqué</b> (0 conversion restante)"
+elif _conv_left <= 10:
+    _conv_line = f"🟠 <b>{_conv_left} conversion(s) restante(s)</b> avant blocage de l'outil"
+else:
+    _conv_line = f"🟢 <b>{_conv_left} conversion(s) restante(s)</b> sur {CONVERSION_LIMIT}"
 
 st.markdown(f"""
 <div style="
@@ -261,6 +297,9 @@ st.markdown(f"""
     </div>
     <div style="text-align:center; margin-top:8px; color:#888; font-size:12px;">
         ⏳ Départ lundi — la montre tourne 🕐
+    </div>
+    <div style="text-align:center; margin-top:4px; font-size:13px;">
+        {_conv_line}
     </div>
 </div>
 """, unsafe_allow_html=True)
@@ -360,6 +399,16 @@ uploaded_file = st.file_uploader(
 
 if uploaded_file is not None:
     st.info(f"📄 Fichier reçu : **{uploaded_file.name}** ({uploaded_file.size // 1024} Ko)")
+
+    # ── Vérification de la limite avant conversion ────────────────────────────
+    _current_count = count_conversions()
+    if _current_count is not None and _current_count >= CONVERSION_LIMIT:
+        st.error(
+            f"🔴 **Limite de {CONVERSION_LIMIT} conversions atteinte.** "
+            "L'outil est temporairement bloqué. "
+            "Contacte l'administrateur pour débloquer l'accès."
+        )
+        st.stop()
 
     with st.spinner("⏳ Conversion en cours..."):
         try:
