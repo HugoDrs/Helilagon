@@ -224,7 +224,7 @@ def fetch_conversions():
 # ── Bandeau de progression paiement ─────────────────────────────────────────
 
 recu    = 239
-total   = 500
+total   = 478
 restant = total - recu
 pct     = int(recu / total * 100)
 
@@ -260,7 +260,7 @@ st.markdown(f"""
         ">{pct}% payé</div>
     </div>
     <div style="text-align:center; margin-top:8px; color:#888; font-size:12px;">
-        ⏳ Départ lundi — la montre tourne Nadège 🕐
+        ⏳ Départ lundi — la montre tourne 🕐
     </div>
 </div>
 """, unsafe_allow_html=True)
