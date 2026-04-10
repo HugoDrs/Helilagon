@@ -327,13 +327,6 @@ if uploaded_file is not None:
 
             st.success(f"✅ **{len(results)} Part Number(s)** extraits avec succès !")
 
-            # ── Enregistrement monitoring (silencieux) ──────────────────────
-            log_conversion(
-                nom_fichier = uploaded_file.name,
-                nb_pn       = len(results),
-                pn_list     = [r[0] for r in results],
-            )
-
             with st.expander("📋 Voir le détail des lignes extraites"):
                 df = pd.DataFrame(
                     {"Part Number": [r[0] for r in results],
@@ -342,11 +335,22 @@ if uploaded_file is not None:
                 )
                 st.table(df)
 
+            # ── Enregistrement monitoring au clic sur Télécharger ───────────
+            # on_click est appelé UNE seule fois au moment du clic,
+            # pas à chaque re-exécution du script Streamlit.
+            def _log():
+                log_conversion(
+                    nom_fichier = uploaded_file.name,
+                    nb_pn       = len(results),
+                    pn_list     = [r[0] for r in results],
+                )
+
             st.download_button(
                 label="📥 Télécharger le CSV Airbus",
                 data=csv_bytes,
                 file_name=csv_filename,
                 mime="text/csv",
+                on_click=_log,
             )
 
             st.markdown("---")
