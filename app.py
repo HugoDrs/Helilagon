@@ -1,9 +1,8 @@
 import streamlit as st
-import struct
 import re
 import pandas as pd
 import requests
-from datetime import datetime, timezone
+from datetime import datetime
 
 # ── Configuration de la page ──────────────────────────────────────────────────
 
@@ -13,168 +12,119 @@ st.set_page_config(
     layout="centered"
 )
 
-# ── Moteur de conversion BIFF8 ────────────────────────────────────────────────
+# ── Moteur de conversion ─────────────────────────────────────────────────────
+#
+# Stratégie : on délègue intégralement la lecture du binaire .xls à pandas/xlrd.
+# xlrd est une bibliothèque éprouvée qui gère nativement toutes les variantes
+# du format BIFF8 (SST fragmentée, Crystal Reports, enregistrements CONTINUE…).
+# Toute tentative de parser le binaire manuellement est fragile par construction :
+# le format contient des cas limites impossibles à couvrir exhaustivement.
+#
+# Structure du fichier Airstock :
+#   - Lignes 0–3  : en-têtes (ignorées)
+#   - Col 1 (B)   : Part Number
+#   - Col 2 (C)   : Quantité commandée
+#   - Entre chaque article : 1 ligne "Livraison avant le…" + 1 ligne vide
+#   - Fin de fichier : lignes de pied de page (Total HT, mentions légales…)
 
-COL_PN     = 1
-COL_QTY    = 2
-HEADER_ROW = 3
+import io as _io
+import subprocess as _subprocess
+import sys as _sys
+import importlib as _importlib
 
-def u16(data, pos): return struct.unpack_from('<H', data, pos)[0]
-def u32(data, pos): return struct.unpack_from('<I', data, pos)[0]
-def f64(data, pos): return struct.unpack_from('<d', data, pos)[0]
+def _ensure(pkg, import_as=None):
+    """Installe pkg si absent (silencieux)."""
+    try:
+        _importlib.import_module(import_as or pkg)
+    except ImportError:
+        _subprocess.check_call([_sys.executable, "-m", "pip", "install", pkg, "-q"],
+                               stdout=_subprocess.DEVNULL, stderr=_subprocess.DEVNULL)
 
-def find_sst_offset(data):
-    pos = 0
-    while True:
-        idx = data.find(b'\xfc\x00', pos)
-        if idx == -1: return None
-        rec_len = u16(data, idx + 2)
-        if rec_len >= 8 and idx + 12 <= len(data):
-            total  = u32(data, idx + 4)
-            unique = u32(data, idx + 8)
-            if 0 < unique <= 10000 and total >= unique:
-                return idx
-        pos = idx + 1
+_ensure("xlrd")
 
-def parse_sst(data, sst_offset):
-    unique_count = u32(data, sst_offset + 8)
-    pos = sst_offset + 12
-    strings = []
-    for _ in range(unique_count):
-        if pos + 3 > len(data): strings.append(None); continue
-        str_len    = u16(data, pos)
-        flags      = data[pos + 2]
-        compressed = not (flags & 0x01)
-        has_rich   = bool(flags & 0x08)
-        has_phonet = bool(flags & 0x04)
-        pos += 3
-        rich_count = phonetic_size = 0
-        if has_rich:   rich_count    = u16(data, pos); pos += 2
-        if has_phonet: phonetic_size = u32(data, pos); pos += 4
-        byte_count = str_len if compressed else str_len * 2
-        if pos + byte_count > len(data):
-            strings.append(None)
-            pos += byte_count + rich_count * 4 + phonetic_size
-            continue
-        try:
-            enc = 'latin-1' if compressed else 'utf-16-le'
-            s   = data[pos:pos + byte_count].decode(enc, errors='replace')
-            if s.count('\ufffd') > 2 or any(ord(c) > 0x2000 for c in s):
-                s = None
-        except:
-            s = None
-        pos += byte_count + rich_count * 4 + phonetic_size
-        strings.append(s)
-    return strings
+_FOOTER_KW = (
+    "Total", "Toutes les", "HELILAGON", "Page", "COMMANDE", "EUR",
+    "Livraison avant", "PN - description", "Quantité", "Payment terms",
+    "Cpte fourn", "Destinataire",
+)
 
-def parse_early_pool(data, sst_offset):
-    pn_re     = re.compile(r'^[A-Z0-9][A-Z0-9\-\.\,]{2,49}$')
-    pn_sep_re = re.compile(r'[0-9\-\.\,]')
-    def is_pn(s): return bool(pn_re.match(s) and pn_sep_re.search(s))
-    pns = []
-    pos = 0
-    while pos < sst_offset - 3:
-        if pos + 3 > len(data): break
-        str_len = u16(data, pos)
-        flags   = data[pos + 2]
-        if flags == 0x01 and 3 <= str_len <= 50:
-            bc  = str_len * 2
-            end = pos + 3 + bc
-            if end <= sst_offset:
-                try:
-                    s = data[pos + 3:end].decode('utf-16-le', errors='strict')
-                    if s.isprintable() and is_pn(s): pns.append(s)
-                except: pass
-        pos += 1
-    return pns
-
-def build_fallback_pn_list(early_pns):
-    pn_re     = re.compile(r'^[A-Z0-9][A-Z0-9\-\.\,]{2,49}$')
-    pn_sep_re = re.compile(r'[0-9\-\.\,]')
-    result = []
-    for pn in early_pns:
-        if pn.endswith('LE') and len(pn) > 4:
-            t = pn[:-2]
-            if pn_re.match(t) and pn_sep_re.search(t) and t not in result:
-                result.append(t)
-        if pn not in result:
-            result.append(pn)
-    return result
-
-def parse_cells(data, strings):
-    cells = {}
-    pos = 0
-    while True:
-        idx = data.find(b'\xfd\x00', pos)
-        if idx == -1: break
-        if idx + 14 <= len(data) and u16(data, idx + 2) == 10:
-            row     = u16(data, idx + 4)
-            col     = u16(data, idx + 6)
-            sst_idx = u32(data, idx + 10)
-            cells[(row, col)] = strings[sst_idx] if sst_idx < len(strings) else None
-        pos = idx + 1
-    pos = 0
-    while True:
-        idx = data.find(b'\x03\x02', pos)
-        if idx == -1: break
-        if idx + 18 <= len(data) and u16(data, idx + 2) == 14:
-            row = u16(data, idx + 4)
-            col = u16(data, idx + 6)
-            cells[(row, col)] = f64(data, idx + 10)
-        pos = idx + 1
-    return cells
-
-def fill_corrupted_pns(cells, fallback_pns):
-    if not fallback_pns: return cells
-    broken_rows = sorted(
-        row for (row, col), val in cells.items()
-        if col == COL_PN and val is None
-    )
-    for row, pn in zip(broken_rows, fallback_pns):
-        cells[(row, COL_PN)] = pn
-    return cells
-
-def is_header_or_footer(val):
-    if val is None: return True
+def _is_footer(val) -> bool:
+    """
+    Retourne True pour toute valeur qui ne peut pas être un Part Number :
+    lignes vides, en-têtes, pieds de page, dates, mentions légales…
+    N'applique AUCUN filtre sur le format du PN lui-même — tout ce qui
+    reste est conservé, peu importe sa forme (alphanumérique, court,
+    avec tirets, points, lettres seules…).
+    """
+    if val is None:
+        return True
     s = str(val).strip()
-    if not s: return True
-    if '\n' in s: return True
-    if re.match(r'^\d{2}/\d{2}/\d{4}', s): return True
+    if not s or s.lower() == "nan":
+        return True
+    # Cellules multi-paragraphes (en-tête Crystal Reports fusionné)
+    if "\n" in s:
+        return True
+    # Mots-clés de pied de page / en-tête
+    if any(kw in s for kw in _FOOTER_KW):
+        return True
+    # Date dd/mm/yyyy
+    if re.match(r"\d{2}/\d{2}/\d{4}", s):
+        return True
     return False
 
-def convert_xls_bytes_to_csv(xls_bytes):
-    data = xls_bytes
-    sst_offset = find_sst_offset(data)
-    if sst_offset is None:
+def convert_xls_bytes_to_csv(xls_bytes: bytes):
+    """
+    Lit le fichier .xls Airstock et retourne (csv_content, results).
+    results est une liste de tuples (pn_str, qty_str).
+    Lève ValueError si le fichier n'est pas reconnu par xlrd.
+    """
+    try:
+        df = pd.read_excel(_io.BytesIO(xls_bytes), engine="xlrd", header=None)
+    except Exception as exc:
         raise ValueError(
-            "Table SST introuvable. "
-            "Vérifiez que le fichier est bien un .xls Airstock (Excel 97-2003)."
+            f"Impossible de lire le fichier : {exc}\n"
+            "Vérifiez que le fichier est bien exporté depuis Airstock "
+            "au format \"Microsoft Excel (97-2003) Données uniquement (*.xls)\"."
         )
-    strings      = parse_sst(data, sst_offset)
-    early_pns    = parse_early_pool(data, sst_offset)
-    fallback_pns = build_fallback_pn_list(early_pns)
-    cells        = parse_cells(data, strings)
-    cells        = fill_corrupted_pns(cells, fallback_pns)
-    all_rows     = sorted(set(row for (row, _) in cells))
-    results      = []
-    for row in all_rows:
-        if row <= HEADER_ROW: continue
-        pn_val  = cells.get((row, COL_PN))
-        qty_val = cells.get((row, COL_QTY))
-        if qty_val is None: continue
-        if is_header_or_footer(pn_val): continue
+
+    results = []
+    for i, row in df.iterrows():
+        if i < 4:          # lignes 0-3 = en-têtes Airstock
+            continue
+
+        pn_val  = row[1]   # colonne B
+        qty_val = row[2]   # colonne C
+
+        # Ignorer si PN absent ou ligne de structure (livraison, pied de page…)
+        if pd.isna(pn_val) or _is_footer(pn_val):
+            continue
+
         pn_str = str(pn_val).strip()
-        if not pn_str: continue
+        if not pn_str:
+            continue
+
+        # Ignorer si quantité absente ou non numérique
+        if pd.isna(qty_val):
+            continue
         try:
             qty_float = round(float(qty_val), 3)
         except (ValueError, TypeError):
             continue
-        if qty_float <= 0: continue
-        qty_str = str(int(qty_float)) if qty_float == int(qty_float) else str(qty_float).replace('.', ',')
+
+        if qty_float <= 0:
+            continue
+
+        # Formatage : entier si .0, sinon décimal avec virgule (norme FR)
+        qty_str = (str(int(qty_float))
+                   if qty_float == int(qty_float)
+                   else str(qty_float).replace(".", ","))
+
         results.append((pn_str, qty_str))
+
     csv_lines = ["Ordered Reference;Quantity"]
     for pn, qty_str in results:
         csv_lines.append(f"{pn};{qty_str}")
+
     return "\n".join(csv_lines), results
 
 
