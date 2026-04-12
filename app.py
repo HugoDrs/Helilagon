@@ -371,12 +371,21 @@ if uploaded_file is not None:
             st.success(f"✅ **{len(results)} Part Number(s)** extraits avec succès !")
 
             with st.expander("📋 Voir le détail des lignes extraites"):
-                df = pd.DataFrame(
-                    {"Part Number": [r[0] for r in results],
-                     "Quantité":    [r[1] for r in results]},
-                    index=range(1, len(results) + 1)
+                df = pd.DataFrame({
+                    "N°":          list(range(1, len(results) + 1)),
+                    "Part Number": [r[0] for r in results],
+                    "Quantité":    [r[1] for r in results],
+                })
+                st.dataframe(
+                    df,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "N°":          st.column_config.NumberColumn(width="small"),
+                        "Part Number": st.column_config.TextColumn(width="medium"),
+                        "Quantité":    st.column_config.TextColumn(width="small"),
+                    }
                 )
-                st.table(df)
 
             # ── Enregistrement monitoring au clic sur Télécharger ───────────
             # on_click est appelé UNE seule fois au moment du clic,
