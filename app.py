@@ -381,7 +381,7 @@ if uploaded_file is not None:
                     use_container_width=True,
                     hide_index=True,
                     column_config={
-                        "N°":          st.column_config.NumberColumn(width="50"),
+                        "N°":          st.column_config.NumberColumn(width="10"),
                         "Part Number": st.column_config.TextColumn(width="medium"),
                         "Quantité":    st.column_config.TextColumn(width="small"),
                     }
