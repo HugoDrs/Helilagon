@@ -307,14 +307,10 @@ with st.expander("📖 Comment exporter le fichier depuis Airstock ?", expanded=
 
     col1, col2 = st.columns([1, 20])
     with col1: st.markdown("**9**")
-    with col2: st.markdown("Dans l'Explorateur de fichiers, clique sur **Ce PC** dans le panneau de gauche → tu verras apparaître ton ordinateur local sous la forme **`Lecteur (\\\\tsclient\\...)`** ou similaire → ouvre-le")
-
-    col1, col2 = st.columns([1, 20])
-    with col1: st.markdown("**10**")
     with col2: st.markdown("Navigue jusqu'au dossier de ton choix sur ton **PC local** (ex : Documents) → **clic droit** → **Coller**")
 
     col1, col2 = st.columns([1, 20])
-    with col1: st.markdown("**11**")
+    with col1: st.markdown("**10**")
     with col2: st.markdown("Le fichier est maintenant sur ton PC local ✅ Tu peux le déposer dans l'outil ci-dessous !")
 
     st.info(
